@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "RSVP Reader",
+  "version": "0.0.0",
+  "description": "Speed-read any web page word by word (RSVP). Select text or let it find the main content, then click the toolbar icon.",
+  "permissions": ["activeTab", "scripting"],
+  "action": { "default_title": "RSVP Reader" },
+  "background": { "service_worker": "background.js" }
+}

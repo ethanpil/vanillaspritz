@@ -22,10 +22,7 @@ async function build() {
   const bookmarklet = 'javascript:' + result.code.replace(/%/g, '%25');
   fs.writeFileSync(path.join(dist, 'bookmarklet.txt'), bookmarklet);
 
-  const extensionSrc = path.join(__dirname, 'extension');
-  for (const file of fs.readdirSync(extensionSrc)) {
-    fs.copyFileSync(path.join(extensionSrc, file), path.join(dist, 'extension', file));
-  }
+  fs.cpSync(path.join(__dirname, 'extension'), path.join(dist, 'extension'), { recursive: true });
   fs.copyFileSync(path.join(dist, 'rsvp-reader.min.js'), path.join(dist, 'extension', 'rsvp-reader.js'));
 
   // Keep the copy/pastable bookmarklet in the README in sync with the build.
@@ -34,9 +31,11 @@ async function build() {
   const START = '<!-- BOOKMARKLET:START -->';
   const END = '<!-- BOOKMARKLET:END -->';
   if (readme.includes(START) && readme.includes(END)) {
+    // Replacer function so $-sequences in the minified code are inserted
+    // literally instead of being treated as replacement patterns.
     const updated = readme.replace(
       new RegExp(`${START}[\\s\\S]*?${END}`),
-      `${START}\n\`\`\`\n${bookmarklet}\n\`\`\`\n${END}`
+      () => `${START}\n\`\`\`\n${bookmarklet}\n\`\`\`\n${END}`
     );
     fs.writeFileSync(readmePath, updated);
     console.log('Updated bookmarklet in README.md');

@@ -24,9 +24,20 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check README bookmarklet is current
+        run: |
+          if ! git diff --exit-code README.md; then
+            echo "README bookmarklet is stale — run 'npm run build' locally and commit README.md" >&2
+            exit 1
+          fi
+
       - name: Set extension version from tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+            echo "Tag $GITHUB_REF_NAME is not a valid extension version — use vN[.N[.N[.N]]] (Chrome requires dotted integers)" >&2
+            exit 1
+          fi
           jq --arg v "$VERSION" '.version = $v' dist/extension/manifest.json > manifest.tmp
           mv manifest.tmp dist/extension/manifest.json
 

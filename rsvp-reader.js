@@ -2,19 +2,13 @@
 
   'use strict'; // Enforce stricter parsing and error handling
 
-  // --- Prevent multiple reader instances ---
-  if (window.rsvpInstance) {
-    console.log("Removing existing RSVP instance.");
-    window.rsvpInstance.remove();
-    window.rsvpInstance = null;
-  }
-
   // --- RSVPReader Class Definition ---
   class RSVPReader {
     constructor() {
       this.isPlaying = false;
       this.currentWordIndex = 0;
       this.words = [];
+      this.intervalSuffix = [];
       this.intervalId = null;
       this.mouseDown = false;
       this.dragOffsetX = 0;
@@ -188,10 +182,11 @@
         this.timeRemainingDisplay = this.addUiElement("div", "rsvp_time_remaining", this.rootDiv);
         this.controlsDiv = this.addUiElement("div", "rsvp_controls", this.rootDiv);
         this.wpmSelect = this.addUiElement("select", "rsvp_wpm", this.controlsDiv);
+        const WPM_MIN = 200, WPM_MAX = 1000, WPM_STEP = 50;
         let savedWpm = 350;
         try { savedWpm = parseInt(localStorage.getItem('rsvp_reader_wpm'), 10); } catch (e) { /* localStorage may be blocked */ }
-        if (!savedWpm || savedWpm < 200 || savedWpm > 1000 || savedWpm % 50 !== 0) { savedWpm = 350; }
-        for (let wpm = 200; wpm <= 1000; wpm += 50) {
+        if (!savedWpm || savedWpm < WPM_MIN || savedWpm > WPM_MAX || savedWpm % WPM_STEP !== 0) { savedWpm = 350; }
+        for (let wpm = WPM_MIN; wpm <= WPM_MAX; wpm += WPM_STEP) {
             const wpmOption = document.createElement("option"); wpmOption.text = `${wpm} wpm`; wpmOption.value = String(wpm);
             if (wpm === savedWpm) { wpmOption.selected = true; } this.wpmSelect.add(wpmOption);
         }
@@ -222,6 +217,10 @@
         this.onKeyDown = (event) => {
             const target = event.target;
             if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName || ''))) { return; }
+            // Yield to the page's own keyboard UI: act only when nothing specific
+            // has focus (normal browsing leaves focus on <body>) or focus is inside
+            // the reader panel, so focused players/widgets keep their keys.
+            if (target !== document.body && target !== document.documentElement && !this.rootDiv.contains(target)) { return; }
             if (event.key === ' ') {
                 event.preventDefault();
                 if (this.isPlaying) { this.pause(); } else { this.start(); }
@@ -248,8 +247,15 @@
     rewind(wordCount) {
         if (!this.words || this.words.length === 0) { return; }
         this.currentWordIndex = Math.max(0, this.currentWordIndex - wordCount);
-        this.setWord(this.words[this.currentWordIndex]);
-        this.updateProgressDisplay();
+        if (this.isPlaying) {
+            // Restart the loop from the rewound word so the pending timeout
+            // (paced for the pre-rewind word) can't fire with stale timing.
+            clearTimeout(this.intervalId);
+            this.tick();
+        } else {
+            this.setWord(this.words[this.currentWordIndex]);
+            this.updateProgressDisplay();
+        }
     }
 
     // --- Get Current WPM Setting ---
@@ -275,16 +281,20 @@
             const paddingAmount = Math.round(Math.abs(widthDiff)); const limitedPadding = Math.min(MAX_PADDING, paddingAmount);
             if (widthDiff > 0) { latterPadding = NBSP.repeat(limitedPadding); } else if (widthDiff < 0) { formerPadding = NBSP.repeat(limitedPadding); }
         }
-        // Shrink font for very long words/tokens (e.g. URLs) so they fit the panel
         const totalChars = formerPadding.length + formerPart.length + 1 + latterPart.length + latterPadding.length;
-        this.wordWrapper.style.fontSize = totalChars > 20 ? `${Math.max(12, Math.floor(600 / totalChars))}px` : '';
+        this.fitFontSize(totalChars);
         this.former.textContent = formerPadding + formerPart; this.pivot.textContent = pivotChar || NBSP; this.latter.textContent = latterPart + latterPadding;
      }
+
+    // --- Shrink font for very long words/tokens (e.g. URLs) so they fit the panel ---
+    fitFontSize(length) {
+        this.wordWrapper.style.fontSize = length > 20 ? `${Math.max(12, Math.floor(600 / length))}px` : '';
+    }
 
     // --- Display a plain status message (no pivot highlight) ---
     setStatus(message) {
         message = String(message);
-        this.wordWrapper.style.fontSize = message.length > 20 ? `${Math.max(12, Math.floor(600 / message.length))}px` : '';
+        this.fitFontSize(message.length);
         this.former.textContent = message; this.pivot.textContent = ''; this.latter.textContent = '';
      }
 
@@ -305,30 +315,19 @@
         }
         const progressPercent = (this.currentWordIndex / this.words.length) * 100;
         this.progressBar.style.width = `${Math.min(100, Math.max(0, progressPercent))}%`;
-        const currentWpm = this.getWPM(); let totalSecondsRemaining = 0;
-        if (currentWpm > 0 && this.currentWordIndex < this.words.length) {
-            // Sum per-word multipliers so punctuation/long-word pauses are included
-            const baseSeconds = 60 / currentWpm; let intervals = 0;
-            for (let i = this.currentWordIndex; i < this.words.length; i++) {
-                intervals += this.getWordMultiplier(this.words[i]);
-            }
-            totalSecondsRemaining = intervals * baseSeconds;
-        }
-        // Update display only if playing or just started (words list available)
-        if (this.isPlaying || this.currentWordIndex === 0 && this.words.length > 0) {
-             this.timeRemainingDisplay.textContent = this.formatTime(totalSecondsRemaining);
-        } else if (this.currentWordIndex === this.words.length) { 
+        if (this.currentWordIndex < this.words.length) {
+            // Precomputed suffix sums include punctuation/long-word pauses at O(1) per tick
+            const totalSecondsRemaining = this.intervalSuffix[this.currentWordIndex] * (60 / this.getWPM());
+            this.timeRemainingDisplay.textContent = this.formatTime(totalSecondsRemaining);
+        } else {
             this.timeRemainingDisplay.textContent = this.formatTime(0);
-        }
-        else {  // Handle stopped/initial state
-            this.timeRemainingDisplay.textContent = "-"; 
         }
     }
 
 
     // --- Start Reading Process ---
     start() {
-        if (this.currentWordIndex === 0) {
+        if (this.words.length === 0) {
             let textToUse = this.getSelectedText();
             if (!textToUse) {
                 const mainContentElement = this.findMainContentElement();
@@ -346,7 +345,13 @@
                  this.updateProgressDisplay(); // Ensure reset state
                  return;
             }
-            this.currentWordIndex = 0; 
+            // Suffix sums of per-word multipliers for the O(1) time estimate
+            this.intervalSuffix = new Array(this.words.length + 1);
+            this.intervalSuffix[this.words.length] = 0;
+            for (let i = this.words.length - 1; i >= 0; i--) {
+                this.intervalSuffix[i] = this.intervalSuffix[i + 1] + this.getWordMultiplier(this.words[i]);
+            }
+            this.currentWordIndex = 0;
             this.updateProgressDisplay();
         }
         if (this.words.length === 0 || this.currentWordIndex >= this.words.length) { 
@@ -369,8 +374,10 @@
 
     // --- Stop Reading and Reset ---
     stop() {
-        clearTimeout(this.intervalId); 
+        clearTimeout(this.intervalId);
         this.intervalId = null;
+        // Clear the text so the next Start re-acquires it (start() keys off this)
+        this.words = []; this.intervalSuffix = [];
         this.currentWordIndex = 0; this.isPlaying = false;
         this.startButton.textContent = "Start";
         // Reset progress bar and time display fully on stop

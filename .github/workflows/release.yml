@@ -24,10 +24,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check README bookmarklet is current
+      - name: Check embedded bookmarklets are current
         run: |
-          if ! git diff --exit-code README.md; then
-            echo "README bookmarklet is stale — run 'npm run build' locally and commit README.md" >&2
+          if ! git diff --exit-code README.md docs/index.html; then
+            echo "Embedded bookmarklet is stale — run 'npm run build' locally and commit README.md and docs/index.html" >&2
             exit 1
           fi
 

@@ -4,7 +4,9 @@ RSVP Reader is a bookmarklet and Chrome extension utilizing the [Rapid Serial Vi
 ## Installation
 
 ### Bookmarklet
-Create a new bookmark in your browser and paste the following code as its URL (or drag any link to your bookmarks bar and edit it). Then click the bookmark on any page to open the reader.
+**Easiest:** open the **[install page](https://ethanpil.github.io/rsvpreader/)** and drag the **📖 RSVP Reader** button to your bookmarks bar. (GitHub strips `javascript:` links from READMEs, so the draggable link lives on that page.)
+
+**Manual:** create a new bookmark in your browser and paste the following code as its URL. Then click the bookmark on any page to open the reader.
 
 <!-- BOOKMARKLET:START -->
 ```
@@ -29,7 +31,7 @@ javascript:!function(){"use strict";class t{constructor(){this.isPlaying=!1,this
 npm install
 npm run build
 ```
-This produces `dist/bookmarklet.txt`, `dist/rsvp-reader.min.js`, and an unpacked Chrome extension in `dist/extension/`, and refreshes the bookmarklet code above. Tagged pushes (`v*`) trigger a GitHub Action that attaches the built extension zip and bookmarklet to a release.
+This produces `dist/bookmarklet.txt`, `dist/rsvp-reader.min.js`, and an unpacked Chrome extension in `dist/extension/`, and refreshes the bookmarklet code above and the draggable link on the [install page](https://ethanpil.github.io/rsvpreader/) (`docs/index.html`). Tagged pushes (`v*`) trigger a GitHub Action that attaches the built extension zip and bookmarklet to a release.
 
 ## Changelog
 _07/12/2026_ Fixes and packaging with the help of [Claude](https://claude.com/claude-code).
@@ -55,7 +57,7 @@ _10/18/2024_ Initial Release based on [CoffeeSpritz](https://github.com/cbarraco
 
 ## TO DO
 * ~~If no text is selected, auto detect largest content block on the page with JS (without readibility api).~~
-* Create github pages with lve bookmarklet link
+* ~~Create github pages with lve bookmarklet link~~
 * ~~Rewind X seconds~~
 * UI improvements
     * ~~Add vertical guidelines above red letter like original implementation~~

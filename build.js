@@ -3,6 +3,8 @@
 //   dist/rsvp-reader.min.js  - minified source
 //   dist/bookmarklet.txt     - single-line javascript: URL for the bookmarks bar
 //   dist/extension/          - unpacked Chrome extension (MV3)
+// Also refreshes the bookmarklet embedded in README.md and the draggable
+// install link in docs/index.html (the GitHub Pages site).
 const fs = require('fs');
 const path = require('path');
 const { minify } = require('terser');
@@ -39,6 +41,24 @@ async function build() {
     );
     fs.writeFileSync(readmePath, updated);
     console.log('Updated bookmarklet in README.md');
+  }
+
+  // Keep the draggable install link on the GitHub Pages site in sync.
+  const pagePath = path.join(__dirname, 'docs', 'index.html');
+  if (fs.existsSync(pagePath)) {
+    const page = fs.readFileSync(pagePath, 'utf8');
+    const LINK_START = '<!-- BOOKMARKLET-LINK:START -->';
+    const LINK_END = '<!-- BOOKMARKLET-LINK:END -->';
+    if (page.includes(LINK_START) && page.includes(LINK_END)) {
+      // The code contains both quote types, so the href must be entity-escaped.
+      const href = bookmarklet.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      const updatedPage = page.replace(
+        new RegExp(`${LINK_START}[\\s\\S]*?${LINK_END}`),
+        () => `${LINK_START}<a class="bookmarklet" href="${href}">&#128214; RSVP Reader</a>${LINK_END}`
+      );
+      fs.writeFileSync(pagePath, updatedPage);
+      console.log('Updated bookmarklet link in docs/index.html');
+    }
   }
 
   console.log(`Built dist/: bookmarklet ${bookmarklet.length} chars, extension ${fs.readdirSync(path.join(dist, 'extension')).join(', ')}`);

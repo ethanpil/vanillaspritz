@@ -1,16 +1,6 @@
-javascript:(function() {
- 
-  
-  'use strict'; // Enforce stricter parsing and error handling
+(function() {
 
-  // --- Polyfill for Element.remove() for older browsers ---
-  if (!('remove' in Element.prototype)) {
-    Element.prototype.remove = function() {
-      if (this.parentNode) {
-        this.parentNode.removeChild(this);
-      }
-    };
-  }
+  'use strict'; // Enforce stricter parsing and error handling
 
   // --- Prevent multiple reader instances ---
   if (window.rsvpInstance) {
@@ -45,28 +35,9 @@ javascript:(function() {
               this.currentWordIndex++; // Increment *before* calculating next interval based on the word *just shown*
               this.updateProgressDisplay(); // Update progress bar and time
 
-              // --- Calculate base interval for next pause ---
-              const currentWpm = this.getWPM();
-              const baseInterval = 60000 / currentWpm; // Normal interval based on WPM
-
-              // --- Determine if a longer pause is needed AFTER this word ---
-              let nextInterval;
-              
-              const isLongWord = currentWord.length > 8;
-              const hasPausePunctuation = /[.,:;?\-!]$/.test(currentWord);
-
-              if (hasPausePunctuation) {
-                  // Apply longer pause after punctuation
-                  nextInterval = baseInterval * 1.6;
-                  // console.log(`Extra pause after: "${currentWord}"`);
-              } else if (isLongWord) {
-                   nextInterval = baseInterval * 1.6;
-              } else {
-                  // Use the standard base interval otherwise
-                  nextInterval = baseInterval;
-                  // NOTE: The previous subtle delay for long words (>8 chars) is removed
-                  // in favor of this clearer rule. It could be added back here if needed.
-              }
+              // --- Calculate interval for next pause ---
+              const baseInterval = 60000 / this.getWPM(); // Normal interval based on WPM
+              const nextInterval = baseInterval * this.getWordMultiplier(currentWord);
 
               // --- Schedule Next Word ---
               clearTimeout(this.intervalId);
@@ -75,7 +46,7 @@ javascript:(function() {
           } else {
               // --- End of Text ---
               this.stop();
-              this.setWord("Finished!");
+              this.setStatus("Finished!");
               this.progressBar.style.width = '100%';  // Ensure bar is full on finish
               this.timeRemainingDisplay.textContent = this.formatTime(0); // Show 0 time at end
           }
@@ -84,6 +55,7 @@ javascript:(function() {
 
       // --- WPM Change Handler ---
        this.handleWpmChange = () => {
+           try { localStorage.setItem('rsvp_reader_wpm', String(this.getWPM())); } catch (e) { /* localStorage may be blocked */ }
            this.updateProgressDisplay(); // Update time estimate immediately
            if (!this.isPlaying) return;
            clearTimeout(this.intervalId);
@@ -95,7 +67,7 @@ javascript:(function() {
       this.createStyles();
       this.createUI();
       this.attachEventListeners();
-      this.setWord("RSVP Ready");
+      this.setStatus("RSVP Ready");
       document.body.appendChild(this.rootDiv);
       // Set initial progress state after UI exists
        this.updateProgressDisplay();
@@ -104,15 +76,8 @@ javascript:(function() {
     // --- Text Selection ---
     getSelectedText() {
         let text = "";
-        if (window.getSelection) {
-            const selection = window.getSelection();
-            if (selection && selection.toString().length > 10) {
-                text = selection.toString();
-            }
-        } else if (document.selection && document.selection.type === "Text") {
-             try { text = document.selection.createRange().text; }
-             catch (e) { console.error("Error getting text from document.selection:", e); }
-        }
+        const selection = window.getSelection();
+        if (selection) { text = selection.toString(); }
         return (text && text.trim().length > 10) ? text.trim().replace(/(\r\n|\n|\r)/gm, " ") : "";
     }
 
@@ -135,7 +100,7 @@ javascript:(function() {
         if (bestCandidate && maxScore > 0) {
              const textContent = this.extractText(bestCandidate); const wordCount = textContent.split(/\s+/).length;
              if (textContent.length >= this.MIN_TEXT_LENGTH && wordCount >= this.MIN_WORD_COUNT) {
-                 console.log(`Selected best candidate: ${bestCandidate.tagName}#${bestCandidate.id}.${bestCandidate.className.split(' ').join('.')} with score ${maxScore.toFixed(2)}`);
+                 console.log(`Selected best candidate: ${bestCandidate.tagName}#${bestCandidate.id}.${(bestCandidate.getAttribute('class') || '').split(' ').join('.')} with score ${maxScore.toFixed(2)}`);
                  return bestCandidate;
              } else { console.log(`Best candidate rejected (score: ${maxScore.toFixed(2)}, length: ${textContent.length}, words: ${wordCount}).`); }
         }
@@ -162,7 +127,7 @@ javascript:(function() {
         if (linkDensity > 0.1) score *= 0.5; if (linkDensity > 0.3) score *= 0.3;
         const imgDensity = imgCount / (textLength / 100 + 1); if (imgDensity > 5) score *= 0.6;
         if (el.matches('main')) score *= 2.0; else if (el.matches('article')) score *= 1.5;
-        if (/(comment|meta|share|related|sidebar|ad-slot|nav|menu|footer|header|masthead|widget|utility|social)/i.test(el.className)) { score *= 0.3; }
+        if (/(comment|meta|share|related|sidebar|ad-slot|nav|menu|footer|header|masthead|widget|utility|social)/i.test(el.getAttribute('class') || '')) { score *= 0.3; }
         const listItems = el.querySelectorAll('li'); if (listItems.length > 5) { const listLinks = el.querySelectorAll('li a').length; if (listLinks / (listItems.length + 1) > 0.8) { score *= 0.2; } }
         return Math.max(0, score);
     }
@@ -223,9 +188,12 @@ javascript:(function() {
         this.timeRemainingDisplay = this.addUiElement("div", "rsvp_time_remaining", this.rootDiv);
         this.controlsDiv = this.addUiElement("div", "rsvp_controls", this.rootDiv);
         this.wpmSelect = this.addUiElement("select", "rsvp_wpm", this.controlsDiv);
+        let savedWpm = 350;
+        try { savedWpm = parseInt(localStorage.getItem('rsvp_reader_wpm'), 10); } catch (e) { /* localStorage may be blocked */ }
+        if (!savedWpm || savedWpm < 200 || savedWpm > 1000 || savedWpm % 50 !== 0) { savedWpm = 350; }
         for (let wpm = 200; wpm <= 1000; wpm += 50) {
             const wpmOption = document.createElement("option"); wpmOption.text = `${wpm} wpm`; wpmOption.value = String(wpm);
-            if (wpm === 350) { wpmOption.selected = true; } this.wpmSelect.add(wpmOption);
+            if (wpm === savedWpm) { wpmOption.selected = true; } this.wpmSelect.add(wpmOption);
         }
         this.startButton = this.addUiElement("button", "rsvp_start", this.controlsDiv);
         this.startButton.textContent = "Start";
@@ -240,28 +208,60 @@ javascript:(function() {
     }
 
     // --- Event Listener Setup ---
+    // Document-level handlers are kept as instance properties so remove() can detach them.
     attachEventListeners() {
-        this.dragHandle.addEventListener('mousedown', (event) => {
-            this.mouseDown = true; this.dragOffsetX = event.clientX - this.rootDiv.offsetLeft; this.dragOffsetY = event.clientY - this.rootDiv.offsetTop;
-            this.rootDiv.style.transition = 'none'; event.preventDefault();
-        });
-        document.addEventListener('mousemove', (event) => {
+        this.onMouseMove = (event) => {
             if (this.mouseDown) {
                 let newX = event.clientX - this.dragOffsetX; let newY = event.clientY - this.dragOffsetY; const PADDING = 10;
                 newX = Math.max(PADDING, Math.min(newX, window.innerWidth - this.rootDiv.offsetWidth - PADDING));
                 newY = Math.max(PADDING, Math.min(newY, window.innerHeight - this.rootDiv.offsetHeight - PADDING));
                 this.rootDiv.style.left = `${newX}px`; this.rootDiv.style.top = `${newY}px`; this.rootDiv.style.transform = '';
             }
-        }, { passive: true });
-        document.addEventListener('mouseup', () => { if (this.mouseDown) { this.mouseDown = false; this.rootDiv.style.transition = ''; } });
+        };
+        this.onMouseUp = () => { if (this.mouseDown) { this.mouseDown = false; this.rootDiv.style.transition = ''; } };
+        this.onKeyDown = (event) => {
+            const target = event.target;
+            if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName || ''))) { return; }
+            if (event.key === ' ') {
+                event.preventDefault();
+                if (this.isPlaying) { this.pause(); } else { this.start(); }
+            } else if (event.key === 'Escape') {
+                this.remove();
+            } else if (event.key === 'ArrowLeft') {
+                this.rewind(10);
+            }
+        };
+        this.dragHandle.addEventListener('mousedown', (event) => {
+            this.mouseDown = true; this.dragOffsetX = event.clientX - this.rootDiv.offsetLeft; this.dragOffsetY = event.clientY - this.rootDiv.offsetTop;
+            this.rootDiv.style.transition = 'none'; event.preventDefault();
+        });
+        document.addEventListener('mousemove', this.onMouseMove, { passive: true });
+        document.addEventListener('mouseup', this.onMouseUp);
+        document.addEventListener('keydown', this.onKeyDown);
         this.startButton.addEventListener('click', () => { if (this.isPlaying) { this.pause(); } else { this.start(); } });
         this.closeButton.addEventListener('click', () => { this.remove(); });
         this.controlsDiv.addEventListener('mousedown', (event) => { event.stopPropagation(); });
         this.wpmSelect.addEventListener('change', this.handleWpmChange);
      }
 
+    // --- Rewind N words (works while playing or paused) ---
+    rewind(wordCount) {
+        if (!this.words || this.words.length === 0) { return; }
+        this.currentWordIndex = Math.max(0, this.currentWordIndex - wordCount);
+        this.setWord(this.words[this.currentWordIndex]);
+        this.updateProgressDisplay();
+    }
+
     // --- Get Current WPM Setting ---
     getWPM() { const selectedWpm = parseInt(this.wpmSelect.value, 10); return Math.max(50, selectedWpm); }
+
+    // --- Display-time multiplier for a word ---
+    // Longer pause after sentence/clause punctuation (also when followed by a
+    // closing quote/bracket, e.g. word." or word!) ) and after long words.
+    getWordMultiplier(word) {
+        const hasPausePunctuation = /[.,:;?!]["'”’)\]]*$/.test(word);
+        return (hasPausePunctuation || word.length > 8) ? 1.6 : 1;
+    }
 
     // --- Display Word and Align Pivot ---
     setWord(word) {
@@ -275,7 +275,17 @@ javascript:(function() {
             const paddingAmount = Math.round(Math.abs(widthDiff)); const limitedPadding = Math.min(MAX_PADDING, paddingAmount);
             if (widthDiff > 0) { latterPadding = NBSP.repeat(limitedPadding); } else if (widthDiff < 0) { formerPadding = NBSP.repeat(limitedPadding); }
         }
+        // Shrink font for very long words/tokens (e.g. URLs) so they fit the panel
+        const totalChars = formerPadding.length + formerPart.length + 1 + latterPart.length + latterPadding.length;
+        this.wordWrapper.style.fontSize = totalChars > 20 ? `${Math.max(12, Math.floor(600 / totalChars))}px` : '';
         this.former.textContent = formerPadding + formerPart; this.pivot.textContent = pivotChar || NBSP; this.latter.textContent = latterPart + latterPadding;
+     }
+
+    // --- Display a plain status message (no pivot highlight) ---
+    setStatus(message) {
+        message = String(message);
+        this.wordWrapper.style.fontSize = message.length > 20 ? `${Math.max(12, Math.floor(600 / message.length))}px` : '';
+        this.former.textContent = message; this.pivot.textContent = ''; this.latter.textContent = '';
      }
 
     // --- Time Formatting Helper ---
@@ -295,11 +305,14 @@ javascript:(function() {
         }
         const progressPercent = (this.currentWordIndex / this.words.length) * 100;
         this.progressBar.style.width = `${Math.min(100, Math.max(0, progressPercent))}%`;
-        const wordsRemaining = this.words.length - this.currentWordIndex;
         const currentWpm = this.getWPM(); let totalSecondsRemaining = 0;
-        if (currentWpm > 0 && wordsRemaining > 0) {
-            const minutesRemaining = wordsRemaining / currentWpm;
-            totalSecondsRemaining = minutesRemaining * 60;
+        if (currentWpm > 0 && this.currentWordIndex < this.words.length) {
+            // Sum per-word multipliers so punctuation/long-word pauses are included
+            const baseSeconds = 60 / currentWpm; let intervals = 0;
+            for (let i = this.currentWordIndex; i < this.words.length; i++) {
+                intervals += this.getWordMultiplier(this.words[i]);
+            }
+            totalSecondsRemaining = intervals * baseSeconds;
         }
         // Update display only if playing or just started (words list available)
         if (this.isPlaying || this.currentWordIndex === 0 && this.words.length > 0) {
@@ -322,14 +335,14 @@ javascript:(function() {
                 if (mainContentElement) { textToUse = this.extractText(mainContentElement); }
             }
             if (!textToUse || textToUse.length < 10) {
-                this.setWord("Select text or find content?");
+                this.setStatus("Select text or find content?");
                 alert("Please select text on the page. RSVP couldn't automatically find the main content.");
                 this.updateProgressDisplay(); // Ensure reset state
                 return;
             }
             this.words = textToUse.split(/\s+/).filter(w => w.length > 0);
             if (this.words.length === 0) {
-                 this.setWord("No words found?"); 
+                 this.setStatus("No words found?");
                  this.updateProgressDisplay(); // Ensure reset state
                  return;
             }
@@ -341,7 +354,6 @@ javascript:(function() {
             return; 
         }
         this.isPlaying = true; this.startButton.textContent = "Pause";
-        this.wpmSelect.disabled = false;
         clearTimeout(this.intervalId);
         const baseInterval = 60000 / this.getWPM();
         this.intervalId = setTimeout(this.tick, baseInterval);
@@ -352,7 +364,6 @@ javascript:(function() {
       clearTimeout(this.intervalId); this.intervalId = null; 
       this.isPlaying = false;
       this.startButton.textContent = "Continue";
-      this.wpmSelect.disabled = false;
       // Progress and time display remain unchanged on pause
     }
 
@@ -362,7 +373,6 @@ javascript:(function() {
         this.intervalId = null;
         this.currentWordIndex = 0; this.isPlaying = false;
         this.startButton.textContent = "Start";
-        this.wpmSelect.disabled = false;       
         // Reset progress bar and time display fully on stop
         this.progressBar.style.width = '0%';
         this.timeRemainingDisplay.textContent = "-";
@@ -372,6 +382,9 @@ javascript:(function() {
     // --- Remove Reader from Page ---
     remove() {
         this.pause();
+        document.removeEventListener('mousemove', this.onMouseMove);
+        document.removeEventListener('mouseup', this.onMouseUp);
+        document.removeEventListener('keydown', this.onKeyDown);
         if (this.rootDiv && this.rootDiv.parentNode) { this.rootDiv.remove(); }
         if (this.styleSheet && this.styleSheet.parentNode) { this.styleSheet.remove(); }
         if (this.wpmSelect && this.handleWpmChange) { this.wpmSelect.removeEventListener('change', this.handleWpmChange); }
